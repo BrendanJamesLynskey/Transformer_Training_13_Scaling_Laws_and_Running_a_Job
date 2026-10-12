@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transformer Training 13 — Scaling Laws, Running a Real Job, and After Pretraining</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@300;400;500;600;700&family=Source+Code+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0f2027;
+            --bg-card: #13272f;
+            --bg-code: #182f38;
+            --text-primary: #ede7dd;
+            --text-secondary: #8ca5a9;
+            --accent: #83c395;
+            --accent-dim: #83c39544;
+            --accent-glow: #83c39533;
+            --border: #23404a;
+            --font-display: 'Sora', sans-serif;
+            --font-mono: 'Source Code Pro', 'Source Code Pro', monospace;
+            --font-body: 'Manrope', sans-serif;
+            --max-width: 900px;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 17px;
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            position: relative;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        .hero > * { position: relative; z-index: 1; }
+        .series-label {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+        .hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.2;
+            margin-bottom: 1rem;
+        }
+        .hero h1 .accent { color: var(--accent); }
+        .hero .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            max-width: 640px;
+            margin-bottom: 2rem;
+        }
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 2.5rem;
+        }
+        .tag {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim);
+            white-space: nowrap;
+        }
+        .pipeline {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.25rem;
+            margin-bottom: 1rem;
+            max-width: var(--max-width);
+        }
+        .pipeline-step {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            padding: 0.3rem 0.7rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .pipeline-arrow { color: var(--accent); font-size: 0.9rem; font-weight: 700; }
+        .slide {
+            min-height: 100vh;
+            max-width: var(--max-width);
+            margin: 0 auto;
+            padding: 4rem 1.5rem;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .slide-number {
+            font-family: var(--font-display);
+            font-size: 5rem;
+            font-weight: 700;
+            color: var(--accent-dim);
+            position: absolute;
+            top: 2rem;
+            right: 1.5rem;
+            line-height: 1;
+            user-select: none;
+        }
+        .slide h2 {
+            font-family: var(--font-display);
+            font-size: 1.9rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+            line-height: 1.25;
+        }
+        .slide h3 {
+            font-family: var(--font-display);
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .slide p { margin-bottom: 1rem; color: var(--text-secondary); }
+        .slide p strong { color: var(--text-primary); }
+        .slide ul, .slide ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+        .slide li { margin-bottom: 0.4rem; }
+        .slide li strong { color: var(--text-primary); }
+        .slide code {
+            font-family: var(--font-mono);
+            font-size: 0.88em;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            padding: 0.05rem 0.35rem;
+            border-radius: 3px;
+            color: #cfd7d1;
+        }
+        .code-block {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin: 1.25rem 0;
+            overflow: hidden;
+        }
+        .code-header {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent);
+            background: rgba(131,195,149,0.08);
+            padding: 0.4rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .code-block pre { margin: 0; padding: 1rem; overflow-x: auto; }
+        .code-block code {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: #cfd7d1;
+            background: transparent;
+            border: none;
+            padding: 0;
+        }
+        .kw { color: #f48f70; }
+        .fn { color: #d4c0ea; }
+        .str { color: #c3dbea; }
+        .cm { color: #8ca5a9; font-style: italic; }
+        .num { color: #a8cee8; }
+        .type { color: #eac48b; }
+        .dir { color: #f48f70; }
+        .mac { color: #eac48b; }
+        .table-wrap {
+            overflow-x: auto;
+            margin: 1.25rem 0;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th {
+            background: var(--bg-code);
+            color: var(--accent);
+            font-weight: 600;
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-display);
+            white-space: nowrap;
+        }
+        td {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) td { background: rgba(19,39,47,0.5); }
+        .diagram-flow {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-box {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            text-align: center;
+            white-space: nowrap;
+        }
+        .diagram-box.accent { border-color: var(--accent); color: var(--accent); background: rgba(131,195,149,0.08); }
+        .diagram-box.dim { color: var(--text-secondary); border-color: var(--border); }
+        .diagram-arrow { color: var(--accent); font-size: 1.3rem; font-weight: 700; }
+        .diagram-vertical {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.3rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-vertical .diagram-arrow { font-size: 1.1rem; }
+        .hierarchy {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .hierarchy-level { display: flex; align-items: center; gap: 0.75rem; }
+        .hierarchy-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            min-width: 80px;
+            text-align: right;
+        }
+        .hierarchy-items { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+        .hierarchy-item {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        .hierarchy-item.accent { border-color: var(--accent); color: var(--accent); background: rgba(131,195,149,0.08); }
+        .diagram-grid {
+            display: grid;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+        .diagram-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .diagram-panel {
+            padding: 1rem;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .diagram-panel.accent-border { border-left: 3px solid var(--accent); }
+        .diagram-panel h4 {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+        .diagram-panel p, .diagram-panel ul { font-size: 0.85rem; }
+        .callout {
+            background: var(--bg-card);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 1rem 1.25rem;
+            margin: 1.25rem 0;
+        }
+        .callout p { margin-bottom: 0; }
+        .callout p + p { margin-top: 0.5rem; }
+        .callout .callout-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.3rem;
+        }
+        .contents-list { list-style: none; padding-left: 0; counter-reset: contents; }
+        .contents-list li {
+            counter-increment: contents;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .contents-list li:last-child { border-bottom: none; }
+        .contents-list li::before {
+            content: counter(contents, decimal-leading-zero);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            min-width: 2rem;
+        }
+        .contents-list a { color: var(--text-primary); text-decoration: none; transition: color 0.2s; }
+        .contents-list a:hover { color: var(--accent); }
+        .footer {
+            text-align: center;
+            padding: 3rem 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+            max-width: var(--max-width);
+            margin: 0 auto;
+        }
+        .footer a { color: var(--accent); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+        .canvas-wrap {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1.25rem 0;
+            overflow-x: auto;
+        }
+        .canvas-wrap canvas, .canvas-wrap svg { display: block; margin: 0 auto; max-width: 100%; }
+        .badge {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            vertical-align: middle;
+            margin-left: 0.3rem;
+        }
+        .badge.ok    { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+        .badge.warn  { border-color: #eac48b; color: #eac48b; background: rgba(234,196,139,0.08); }
+        .badge.bad   { border-color: #f48f70; color: #f48f70; background: rgba(244,143,112,0.08); }
+        @media (max-width: 640px) {
+            .slide { padding: 3rem 1rem; min-height: auto; }
+            .slide-number { font-size: 3rem; top: 1.5rem; right: 1rem; }
+            .slide h2 { font-size: 1.5rem; }
+            .diagram-grid.cols-2, .diagram-grid.cols-3 { grid-template-columns: 1fr; }
+            .pipeline { gap: 0.15rem; }
+            .pipeline-step { font-size: 0.6rem; padding: 0.2rem 0.4rem; }
+            .hero h1 { font-size: 1.8rem; }
+            table { font-size: 0.78rem; }
+        }
+        .slide p a, .slide td a, .slide li a, .callout a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+        .slide p a:hover, .slide td a:hover, .slide li a:hover, .callout a:hover { border-bottom-style: solid; }
+        .hero { overflow: hidden; }
+        .diagram-panel { min-width: 0; }
+        .metric-label .katex, .callout-label .katex, .series-label .katex,
+        .metric-label .katex *, .callout-label .katex * { text-transform: none; }
+        .canvas-wrap canvas { image-rendering: auto; }
+        .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.25rem 0; }
+        @media (max-width: 640px) { .katex-display { font-size: 0.8em; } }
+        .chart-wrap { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; margin: 1.25rem 0; }
+        .chart-wrap svg { display: block; width: 100%; height: auto; }
+        .chart-cap { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.4rem; }
+        .live-link { font-family: var(--font-mono); font-size: 0.8rem; margin-top: 1rem; }
+        .widget { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1.25rem 0; }
+        .widget .row { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; margin-bottom: 0.6rem; }
+        .widget label { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-secondary); display: flex; gap: 0.5rem; align-items: center; }
+        .widget input[type=range] { width: 160px; max-width: 100%; accent-color: var(--accent); }
+        .widget select { background: var(--bg-code); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.4rem; font-family: var(--font-mono); font-size: 0.78rem; }
+        .widget button { background: var(--bg-code); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0.35rem 0.8rem; font-family: var(--font-mono); font-size: 0.78rem; cursor: pointer; min-height: 36px; }
+        .widget button:hover { background: var(--accent-dim); }
+        .widget .out { font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-primary); }
+        .widget .cap { font-size: 0.82rem; color: var(--text-secondary); min-height: 2.6em; }
+        .widget svg { display: block; width: 100%; height: auto; }
+        .num-strong { color: var(--text-primary); font-weight: 600; }
+    /* deck-mobile-fix:hero */ .hero{overflow:hidden}@supports (overflow-x:clip){.hero{overflow:visible;overflow-x:clip}}
+    /* deck-mobile-fix:phone */ @media (max-width:640px){.diagram-box,.tier-fill,.section-divider>span,.action-btn{white-space:normal;overflow-wrap:anywhere}.diagram-grid>*,.diagram-panel,.diagram-box,.code-block,.callout,.metric,.control-group,.control-row>*,.pipeline-body,.roll-track>*,.tier-fill,.timeline-row>*{min-width:0;max-width:100%}p,li,a,code,td,th,.callout,.diagram-panel{overflow-wrap:break-word}pre{max-width:100%;overflow-x:auto}table{display:block;max-width:100%;overflow-x:auto}.katex-display,.bits,.canvas-wrap,.influence-map-wrapper,.timeline-track,div:has(>.bank-cell){max-width:100%;overflow-x:auto;overflow-y:hidden}select,input,img,video,iframe,.action-btn{max-width:100%}canvas{max-width:100%;height:auto}}
+            /* tt-charts */
+        .chart .plot-bg { fill: none; }
+        .chart .grid { stroke: var(--border); stroke-width: 1; }
+        .chart .axis { stroke: var(--text-secondary); stroke-width: 1; }
+        .chart .lbl { fill: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; }
+        .chart .lbl.ax { fill: var(--text-primary); font-size: 12.5px; }
+        .chart .hline { stroke: var(--text-secondary); stroke-dasharray: 2 4; }
+        .chart .ln { fill: none; stroke-width: 2.2; }
+        .chart .eb { stroke-width: 1.4; }
+        .chart .legend-bg { fill: var(--bg-primary); stroke: var(--border); opacity: 0.92; }
+        .s1 { stroke: #56b4e9; fill: #56b4e9; } .s2 { stroke: #e69f00; fill: #e69f00; }
+        .s3 { stroke: #009e73; fill: #3fbf96; } .s4 { stroke: #cc79a7; fill: #cc79a7; }
+        .s5 { stroke: #f0e442; fill: #f0e442; } .s6 { stroke: #d55e00; fill: #d55e00; }
+        .s0 { stroke: var(--text-secondary); fill: var(--text-secondary); }
+        .ln { fill: none !important; }
+        .chart .bar { stroke: none; opacity: 0.85; }
+        .chart .lbl.inbar { fill: var(--bg-primary); font-weight: 600; }
+        @media (max-width: 640px) { .chart .lbl { font-size: 14px; } .chart .lbl.ax { font-size: 14px; } .wg-text, .wg-dim { font-size: 15px; } }
+        .wg-cell { fill: var(--bg-code); stroke: var(--border); }
+        .wg-text { fill: var(--text-primary); font-family: var(--font-mono); font-size: 13px; }
+        .wg-dim { fill: var(--text-secondary); font-family: var(--font-mono); font-size: 13px; }
+        .wg-hot { fill: #e69f00; } .wg-done { fill: #009e73; } .wg-cool { fill: #56b4e9; } .wg-idle { fill: var(--bg-code); stroke: var(--border); }
+        .wg-fwd { fill: #56b4e9; } .wg-bwd { fill: #e69f00; }
+    </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:false})"></script>
+</head>
+<body>
+<header class="hero">
+    <div class="series-label">Transformer Training &mdash; Presentation 13</div>
+    <h1>Scaling Laws, <span class="accent">Running a Job</span></h1>
+    <p class="subtitle">How big a model for a given budget (IsoFLOP profiles, Kaplan against Chinchilla, a toy sweep); what a running job is watched for; failures, checkpoints and goodput at the scale of thousands of GPUs; and the bridge to fine-tuning.</p>
+
+    <div class="tags">
+        <span class="tag">C = 6ND</span>
+        <span class="tag">IsoFLOP</span>
+        <span class="tag">Chinchilla</span>
+        <span class="tag">Monitoring</span>
+        <span class="tag">Checkpoints</span>
+        <span class="tag">Goodput</span>
+        <span class="tag">SFT / DPO</span>
+    </div>
+
+    <div class="pipeline">
+        <span class="pipeline-step">Budget</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Size</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Run</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Fail</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Resume</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Fine-tune</span>
+    </div>
+</header>
+
+<section class="slide" id="slide-00">
+    <div class="slide-number">00</div>
+    <h2>Topics We&rsquo;ll Cover</h2>
+    <ul class="contents-list">
+        <li><a href="#slide-01">Compute Is Parameters Times Tokens</a></li>
+        <li><a href="#slide-02">Kaplan and Chinchilla</a></li>
+        <li><a href="#slide-03">A Toy IsoFLOP Sweep</a></li>
+        <li><a href="#slide-04">How Far That Is from the Real Laws</a></li>
+        <li><a href="#slide-05">Extrapolation, and Overtraining for Inference</a></li>
+        <li><a href="#slide-06">Monitoring a Running Job</a></li>
+        <li><a href="#slide-07">Failures at the Scale of Thousands of GPUs</a></li>
+        <li><a href="#slide-08">Checkpoints: Saving and Resuming a Run</a></li>
+        <li><a href="#slide-09">Goodput and the Checkpoint Interval</a></li>
+        <li><a href="#slide-10">After Pretraining</a></li>
+        <li><a href="#slide-11">What to Take Away</a></li>
+    </ul>
+    <div class="callout">
+        <div class="callout-label">Live companion and sources</div>
+        <p>This deck follows <a href="https://transformer-decoder-explained.vercel.app/training/14-scaling-laws">chapter 14, scaling laws</a>, <a href="https://transformer-decoder-explained.vercel.app/training/15-running-a-real-job">chapter 15, running a real job</a> and <a href="https://transformer-decoder-explained.vercel.app/training/16-after-pretraining">chapter 16, after pretraining</a>. Measured numbers: <a href="https://github.com/BrendanJamesLynskey/transformer-explainer/blob/main/results.md">results.md</a> &sect;11c, &sect;14, &sect;15 and &sect;16.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-01">
+    <div class="slide-number">01</div>
+    <h2>Compute Is Parameters Times Tokens</h2>
+    $$C \approx 6\,N\,D$$
+    <p>Training costs about \(6N\) FLOPs per token for \(N\) parameters: 2 for the forward pass, 4 for the backward (<a href="https://brendanjameslynskey.github.io/Transformer_Training_03_Backpropagation/#slide-03">deck 03</a>), times \(D\) training tokens. A compute budget fixes the product, so every choice of model size fixes the number of tokens it can afford.</p>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border"><h4>Too small a model</h4><p>Learns everything it can and stops improving, however many tokens it sees.</p></div>
+        <div class="diagram-panel accent-border"><h4>Too large a model</h4><p>Never sees enough tokens to use its size.</p></div>
+    </div>
+    <p>In between is the best size for the budget. Plot loss against model size at fixed compute and you get an <strong>IsoFLOP profile</strong>; how its minimum moves as the budget grows is a <strong>scaling law</strong>.</p>
+</section>
+
+<section class="slide" id="slide-02">
+    <div class="slide-number">02</div>
+    <h2>Kaplan and Chinchilla</h2>
+    $$N_{\text{opt}} \propto C^{a}, \qquad D_{\text{opt}} \propto C^{1-a}$$
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border"><h4>Kaplan et al. 2020: a &asymp; 0.73</h4><p><a href="https://arxiv.org/abs/2001.08361">Power laws fitted to many runs</a>: as compute grows, most of it should go into parameters.</p></div>
+        <div class="diagram-panel accent-border"><h4>Hoffmann et al. 2022: a &asymp; 0.5</h4><p>Over 400 models, each run&rsquo;s learning-rate schedule matched to its length: parameters and tokens should grow about equally, 0.5 / 0.49 / 0.46 by three methods (<a href="https://arxiv.org/abs/2203.15556">Table 2</a>). Chinchilla, 70B parameters on 1.4T tokens (20 per parameter), beat much larger models trained on fewer tokens.</p></div>
+    </div>
+    <p>Their second method is the one on the next slide: IsoFLOP profiles, a parabola through each, and a straight line through the minima on log&ndash;log axes. Llama 3 did the same to choose its flagship&rsquo;s size, fitting 0.53 for the optimal number of tokens (<a href="https://arxiv.org/abs/2407.21783">Grattafiori et al. 2024, &sect;3.2.1</a>). Chinchilla&rsquo;s parametric form: \(L(N, D) = E + A/N^{\alpha} + B/D^{\beta}\).</p>
+</section>
+
+<section class="slide" id="slide-03">
+    <div class="slide-number">03</div>
+    <h2>A Toy IsoFLOP Sweep</h2>
+    <div class="chart-wrap"><svg class="chart" viewBox="0 0 480 290" role="img" aria-label="Toy IsoFLOP profiles">
+<rect class="plot-bg" x="62" y="18" width="392" height="230"/>
+<line class="grid" x1="62" x2="454" y1="230.3" y2="230.3"/>
+<text class="lbl" x="56" y="234.3" text-anchor="end">1.75</text>
+<line class="grid" x1="62" x2="454" y1="200.8" y2="200.8"/>
+<text class="lbl" x="56" y="204.8" text-anchor="end">2</text>
+<line class="grid" x1="62" x2="454" y1="171.3" y2="171.3"/>
+<text class="lbl" x="56" y="175.3" text-anchor="end">2.25</text>
+<line class="grid" x1="62" x2="454" y1="141.8" y2="141.8"/>
+<text class="lbl" x="56" y="145.8" text-anchor="end">2.5</text>
+<line class="grid" x1="62" x2="454" y1="112.4" y2="112.4"/>
+<text class="lbl" x="56" y="116.4" text-anchor="end">2.75</text>
+<line class="grid" x1="62" x2="454" y1="82.9" y2="82.9"/>
+<text class="lbl" x="56" y="86.9" text-anchor="end">3</text>
+<line class="grid" x1="80.5" x2="80.5" y1="18" y2="248"/>
+<text class="lbl" x="80.5" y="264" text-anchor="middle">1,000</text>
+<line class="grid" x1="171.7" x2="171.7" y1="18" y2="248"/>
+<text class="lbl" x="171.7" y="264" text-anchor="middle">3,000</text>
+<line class="grid" x1="271.6" x2="271.6" y1="18" y2="248"/>
+<text class="lbl" x="271.6" y="264" text-anchor="middle">10,000</text>
+<line class="grid" x1="362.8" x2="362.8" y1="18" y2="248"/>
+<text class="lbl" x="362.8" y="264" text-anchor="middle">30,000</text>
+<line class="axis" x1="62" x2="454" y1="248" y2="248"/>
+<line class="axis" x1="62" x2="62" y1="18" y2="248"/>
+<text class="lbl ax" x="258" y="284" text-anchor="middle">parameters N (log scale)</text>
+<text class="lbl ax" x="13" y="133" text-anchor="middle" transform="rotate(-90 13 133)">final validation loss</text>
+<clipPath id="clip133408786690880"><rect x="62" y="18" width="392" height="230"/></clipPath>
+<g clip-path="url(#clip133408786690880)">
+<path class="ln s0" d="M85.0,159.6 L122.8,156.8 L178.7,128.8 L220.1,89.0 L280.6,88.7 L324.7,88.9"/>
+<line class="eb s0" x1="85.0" x2="85.0" y1="160.6" y2="158.7"/>
+<line class="eb s0" x1="122.8" x2="122.8" y1="163.7" y2="150.0"/>
+<line class="eb s0" x1="178.7" x2="178.7" y1="152.7" y2="104.9"/>
+<line class="eb s0" x1="220.1" x2="220.1" y1="89.4" y2="88.5"/>
+<line class="eb s0" x1="280.6" x2="280.6" y1="89.1" y2="88.2"/>
+<line class="eb s0" x1="324.7" x2="324.7" y1="89.1" y2="88.6"/>
+<circle class="pt s0" cx="85.0" cy="159.6" r="3"/>
+<circle class="pt s0" cx="122.8" cy="156.8" r="3"/>
+<circle class="pt s0" cx="178.7" cy="128.8" r="3"/>
+<circle class="pt s0" cx="220.1" cy="89.0" r="3"/>
+<circle class="pt s0" cx="280.6" cy="88.7" r="3"/>
+<circle class="pt s0" cx="324.7" cy="88.9" r="3"/>
+<path class="ln s1" d="M85.0,176.3 L122.8,188.5 L178.7,191.4 L220.1,174.9 L280.6,110.3 L324.7,88.5 L388.1,88.4 L433.9,88.8"/>
+<line class="eb s1" x1="85.0" x2="85.0" y1="179.3" y2="173.3"/>
+<line class="eb s1" x1="122.8" x2="122.8" y1="192.6" y2="184.4"/>
+<line class="eb s1" x1="178.7" x2="178.7" y1="198.3" y2="184.5"/>
+<line class="eb s1" x1="220.1" x2="220.1" y1="189.1" y2="160.7"/>
+<line class="eb s1" x1="280.6" x2="280.6" y1="132.2" y2="88.4"/>
+<line class="eb s1" x1="324.7" x2="324.7" y1="89.0" y2="88.0"/>
+<line class="eb s1" x1="388.1" x2="388.1" y1="89.0" y2="87.9"/>
+<line class="eb s1" x1="433.9" x2="433.9" y1="89.1" y2="88.4"/>
+<circle class="pt s1" cx="85.0" cy="176.3" r="3"/>
+<circle class="pt s1" cx="122.8" cy="188.5" r="3"/>
+<circle class="pt s1" cx="178.7" cy="191.4" r="3"/>
+<circle class="pt s1" cx="220.1" cy="174.9" r="3"/>
+<circle class="pt s1" cx="280.6" cy="110.3" r="3"/>
+<circle class="pt s1" cx="324.7" cy="88.5" r="3"/>
+<circle class="pt s1" cx="388.1" cy="88.4" r="3"/>
+<circle class="pt s1" cx="433.9" cy="88.8" r="3"/>
+<path class="ln s1" d="M79.9,166.6 L99.0,178.5 L118.1,186.9 L137.2,192.0 L156.3,193.7 L175.4,192.0 L194.5,186.9 L213.7,178.5 L232.8,166.6" stroke-dasharray="5 4"/>
+<path class="ln s2" d="M85.0,182.9 L122.8,200.9 L178.7,213.7 L220.1,210.0 L280.6,183.8 L324.7,179.5 L388.1,101.0 L433.9,91.8"/>
+<line class="eb s2" x1="85.0" x2="85.0" y1="185.3" y2="180.5"/>
+<line class="eb s2" x1="122.8" x2="122.8" y1="203.4" y2="198.4"/>
+<line class="eb s2" x1="178.7" x2="178.7" y1="215.8" y2="211.6"/>
+<line class="eb s2" x1="220.1" x2="220.1" y1="215.8" y2="204.2"/>
+<line class="eb s2" x1="280.6" x2="280.6" y1="199.2" y2="168.4"/>
+<line class="eb s2" x1="324.7" x2="324.7" y1="192.1" y2="166.9"/>
+<line class="eb s2" x1="388.1" x2="388.1" y1="112.8" y2="89.2"/>
+<line class="eb s2" x1="433.9" x2="433.9" y1="97.5" y2="86.1"/>
+<circle class="pt s2" cx="85.0" cy="182.9" r="3"/>
+<circle class="pt s2" cx="122.8" cy="200.9" r="3"/>
+<circle class="pt s2" cx="178.7" cy="213.7" r="3"/>
+<circle class="pt s2" cx="220.1" cy="210.0" r="3"/>
+<circle class="pt s2" cx="280.6" cy="183.8" r="3"/>
+<circle class="pt s2" cx="324.7" cy="179.5" r="3"/>
+<circle class="pt s2" cx="388.1" cy="101.0" r="3"/>
+<circle class="pt s2" cx="433.9" cy="91.8" r="3"/>
+<path class="ln s2" d="M109.2,194.7 L128.4,203.1 L147.5,209.1 L166.6,212.7 L185.7,213.9 L204.8,212.7 L223.9,209.1 L243.0,203.1 L262.1,194.7" stroke-dasharray="5 4"/>
+<path class="ln s4" d="M178.7,221.4 L220.1,229.9 L280.6,225.5 L324.7,217.0 L388.1,189.8 L433.9,153.8"/>
+<line class="eb s4" x1="178.7" x2="178.7" y1="223.8" y2="219.1"/>
+<line class="eb s4" x1="220.1" x2="220.1" y1="232.0" y2="227.8"/>
+<line class="eb s4" x1="280.6" x2="280.6" y1="231.8" y2="219.3"/>
+<line class="eb s4" x1="324.7" x2="324.7" y1="224.4" y2="209.6"/>
+<line class="eb s4" x1="388.1" x2="388.1" y1="193.7" y2="185.8"/>
+<line class="eb s4" x1="433.9" x2="433.9" y1="171.2" y2="136.5"/>
+<circle class="pt s4" cx="178.7" cy="221.4" r="3"/>
+<circle class="pt s4" cx="220.1" cy="229.9" r="3"/>
+<circle class="pt s4" cx="280.6" cy="225.5" r="3"/>
+<circle class="pt s4" cx="324.7" cy="217.0" r="3"/>
+<circle class="pt s4" cx="388.1" cy="189.8" r="3"/>
+<circle class="pt s4" cx="433.9" cy="153.8" r="3"/>
+<path class="ln s4" d="M160.6,214.8 L179.7,221.8 L198.8,226.7 L217.9,229.7 L237.0,230.7 L256.1,229.7 L275.2,226.7 L294.3,221.8 L313.5,214.8" stroke-dasharray="5 4"/>
+</g>
+<g class="legend"><rect class="legend-bg" x="322" y="24" width="126" height="72" rx="4"/><line class="ln s0" x1="330" x2="348" y1="34" y2="34"/><text class="lbl" x="353" y="38">C = 3e09 FLOPs</text><line class="ln s1" x1="330" x2="348" y1="50" y2="50"/><text class="lbl" x="353" y="54">C = 1e10 FLOPs</text><line class="ln s2" x1="330" x2="348" y1="66" y2="66"/><text class="lbl" x="353" y="70">C = 3e10 FLOPs</text><line class="ln s4" x1="330" x2="348" y1="82" y2="82"/><text class="lbl" x="353" y="86">C = 1e11 FLOPs</text></g>
+</svg><div class="chart-cap">Four budgets, three seeds each (mean &plusmn; sd); dashed: the fitted parabola around each interior minimum (results.md &sect;14).</div></div>
+    <p>Part 1&rsquo;s model at widths 6 to 64 (1,056 to 70,656 parameters), each trained for exactly the tokens its budget allows, AdamW at peak 0.01 with each run&rsquo;s cosine stretched to its own length, three seeds (results.md &sect;14). The rule, fixed before the sweep: a parabola in \(\log N\) through each budget&rsquo;s lowest mean and its two neighbours; no fit if the lowest is at an edge. The smallest budget has no interior minimum (every wider model spends its few hundred steps on the plateau). At the other three the best size grows with the budget: 2,493, 3,550 and 6,590 parameters, a fitted <strong>a = 0.42</strong>.</p>
+</section>
+
+<section class="slide" id="slide-04">
+    <div class="slide-number">04</div>
+    <h2>How Far That Is from the Real Laws</h2>
+    <p>The toy&rsquo;s exponent lands near Chinchilla&rsquo;s. That should not be over-read:</p>
+    <ul>
+        <li>three budgets spanning <strong>one decade</strong>, three seeds, one learning rate for every width;</li>
+        <li>a plateau (deck 01) that decides the smallest budgets: an optimisation transient, not a scaling law;</li>
+        <li>its &ldquo;tokens&rdquo; are characters of one 128,000-character book, <strong>seen over and over</strong>: the best model at the largest budget trains on 2,529,229 characters, hundreds of times its parameter count, where Chinchilla&rsquo;s rule of thumb is 20 tokens per parameter of fresh text.</li>
+    </ul>
+    <p>Real scaling studies span many decades of compute with fresh data. The toy shows the method and the shape of the trade-off. The site&rsquo;s <a href="https://colab.research.google.com/github/BrendanJamesLynskey/transformer-explainer/blob/main/notebooks/14_isoflop_sweep.ipynb">notebook 14</a> runs the same sweep on GPTs of 1&ndash;40M parameters: <strong>GPU run pending</strong>; no number here comes from it.</p>
+</section>
+
+<section class="slide" id="slide-05">
+    <div class="slide-number">05</div>
+    <h2>Extrapolation, and Overtraining for Inference</h2>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>Extrapolation</h4>
+            <p>The point of a scaling law is to predict a run too expensive to try. Llama 3 fitted its law on runs of up to \(10^{22}\) FLOPs and extrapolated to its \(3.8\times10^{25}\) budget, predicting a 402B-parameter model on 16.55T tokens; it trained 405B, because IsoFLOP curves flatten near their minima as budgets grow, so a nearby size costs little (&sect;3.2.1). Extrapolation is only as good as the assumption that nothing changes in between: a toy fit over one decade says nothing about a model a million times larger.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Overtraining</h4>
+            <p>Compute-optimal minimises <em>training</em> cost for a given loss; it ignores the cost of using the model. A smaller model trained on far more tokens reaches a loss a bigger one would reach more cheaply to train, but costs less for every token it ever serves. Llama 3 trained its smaller models &ldquo;for much longer than is compute-optimal&rdquo; for that reason. Model size against serving cost: <a href="https://inference-tradeoffs-explained.vercel.app">Inference Trade-offs Explained</a>.</p>
+        </div>
+    </div>
+</section>
+
+<section class="slide" id="slide-06">
+    <div class="slide-number">06</div>
+    <h2>Monitoring a Running Job</h2>
+    <p>The default run, as a dashboard sees it (results.md &sect;15):</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Step</th><th>Training loss</th><th>Gradient norm (before clipping)</th><th>Learning rate</th><th>Update / weight</th></tr></thead>
+            <tbody>
+                <tr><td>0</td><td>4.173</td><td>0.854</td><td>0.00020</td><td>1.58e-03</td></tr>
+                <tr><td>400</td><td>2.998</td><td>0.383</td><td>0.00930</td><td>5.16e-03</td></tr>
+                <tr><td>800</td><td>2.930</td><td>0.299</td><td>0.00710</td><td>5.15e-03</td></tr>
+                <tr><td>1,200</td><td>2.562</td><td>0.535</td><td>0.00425</td><td>2.82e-03</td></tr>
+                <tr><td>1,600</td><td>2.519</td><td>0.614</td><td>0.00190</td><td>1.10e-03</td></tr>
+                <tr><td>1,999</td><td>2.366</td><td>0.808</td><td>0.00100</td><td>6.43e-04</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="diagram-grid cols-3">
+        <div class="diagram-panel accent-border"><h4>Loss</h4><p>Training loss is noisy (each batch differs); validation loss, scored now and then on held-out text, is the honest version.</p></div>
+        <div class="diagram-panel accent-border"><h4>Gradient norm</h4><p>Before clipping: how hard each step pushes. Spikes start here (<a href="https://brendanjameslynskey.github.io/Transformer_Training_07_Stability/">deck 07</a>).</p></div>
+        <div class="diagram-panel accent-border"><h4>Update / weight</h4><p>How far a step moves the weights relative to their size: rises through warmup, jumps as the model leaves the plateau, falls with the decay.</p></div>
+    </div>
+    <p><strong>Steps to a target loss</strong>: when a method changes the cost of each step (compressed communication, say), compare steps or hours to a target fixed in advance, not final losses. The default run first reaches 2.8 at step 1,000, 2.6 at 1,150 and 2.4 at 1,400 (evaluated every 50 steps).</p>
+</section>
+
+<section class="slide" id="slide-07">
+    <div class="slide-number">07</div>
+    <h2>Failures at the Scale of Thousands of GPUs</h2>
+    <p>Over a 54-day period of Llama 3 405B&rsquo;s pre-training the job was interrupted 466 times: 47 planned and 419 unexpected, about 78% of those hardware (faulty GPUs and their memory above all); only three needed significant manual intervention, and the job still spent more than 90% of its time training (<a href="https://arxiv.org/abs/2407.21783">Grattafiori et al. 2024, &sect;3.3.4, Table 5</a>).</p>
+    <div class="diagram-grid cols-3">
+        <div class="diagram-panel accent-border"><h4>3.09 h</h4><p>between failures, for the job</p></div>
+        <div class="diagram-panel accent-border"><h4>5.8 years</h4><p>between failures, per GPU</p></div>
+        <div class="diagram-panel accent-border"><h4>16,384</h4><p>GPUs, any one of which stops the synchronous job</p></div>
+    </div>
+    <p>A synchronous job fails when any one GPU does: \(N\) GPUs each failing every \(M_1\) make a job that fails every \(M_1/N\). The same report names slow-but-working <strong>stragglers</strong> as a harder problem: every step waits for the slowest (<a href="https://brendanjameslynskey.github.io/Transformer_Training_12_Training_over_Slow_Links/#slide-10">deck 12</a>). Throughput sets the calendar: 3.8&times;10<sup>25</sup> FLOPs at about 400 TFLOP/s on each of 16,384 GPUs is 67 days of uninterrupted compute.</p>
+</section>
+
+<section class="slide" id="slide-08">
+    <div class="slide-number">08</div>
+    <h2>Checkpoints: Saving and Resuming a Run</h2>
+    <p>A checkpoint is everything needed to carry on exactly where training stopped: the weights, the optimiser&rsquo;s state (AdamW&rsquo;s two moments and its step count), the position in the data, and the schedule&rsquo;s step. The reference trainer stopped at step 1,000 and resumed (three seeds, results.md &sect;15):</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Resumed with</th><th>Validation loss 50 steps after</th><th>Final validation loss</th></tr></thead>
+            <tbody>
+                <tr><td>never stopped</td><td>2.643</td><td>2.277 &plusmn; 0.090</td></tr>
+                <tr><td>weights + optimiser + data position</td><td>2.643</td><td>2.277 &plusmn; 0.090</td></tr>
+                <tr><td>weights only (fresh AdamW)</td><td>2.652</td><td>2.327 &plusmn; 0.165</td></tr>
+                <tr><td>weights + optimiser, data restarted</td><td>2.636</td><td>2.286 &plusmn; 0.102</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>Resumed with everything, the run continues <strong>bit for bit</strong> on every seed. Drop the optimiser state and it continues from fresh moments, a gap inside the seed spread here; restart the data and it sees its first batches twice. At scale a checkpoint is large: Llama 3 saved between 1 MB and 4 GB per GPU, on a storage fabric that sustains 2 TB/s with peaks of 7 TB/s, which checkpoint writes saturate (&sect;3.3.1).</p>
+</section>
+
+<section class="slide" id="slide-09">
+    <div class="slide-number">09</div>
+    <h2>Goodput and the Checkpoint Interval</h2>
+    <p>Checkpoint often and the saves eat time; rarely, and each failure throws away more. With checkpoints every \(\tau\) of work, each taking \(\delta\), failures every \(M\) on average and a restart \(R\):</p>
+    $$\begin{gathered}\text{goodput} \approx \frac{1}{1 + \delta/\tau}\Big(1 - \frac{\tau/2 + R}{M}\Big) \\ \tau^* = \sqrt{2\,\delta\,M}\end{gathered}$$
+    <div class="widget" id="gp-widget">
+        <div class="row">
+            <label>checkpoint &delta; (s) <input type="range" id="gp-d" min="5" max="300" value="33"></label>
+            <label>restart R (s) <input type="range" id="gp-r" min="60" max="3600" step="60" value="600"></label>
+            <label>MTBF M (h) <input type="range" id="gp-m" min="0.5" max="24" step="0.1" value="3.1"></label>
+        </div>
+        <svg id="gp-svg" viewBox="0 0 480 200" role="img" aria-label="Goodput against checkpoint interval"></svg>
+        <div class="out" id="gp-out"></div>
+    </div>
+    <script>
+    (function () {
+        const good = (tau, d, M, R) => (1 / (1 + d / tau)) * Math.max(0, 1 - (tau / 2 + R) / M);
+        window.__goodput = good;
+        const X = t => 50 + (Math.log10(t) - 1) / 3 * 410, Y = g => 175 - g * 160;
+        function upd() {
+            const d = +document.getElementById('gp-d').value, R = +document.getElementById('gp-r').value, M = +document.getElementById('gp-m').value * 3600;
+            let path = '', best = [0, 0];
+            for (let k = 0; k <= 300; k++) { const tau = 10 ** (1 + k / 100), g = good(tau, d, M, R); if (g > best[1]) best = [tau, g]; path += (k ? 'L' : 'M') + X(tau).toFixed(1) + ',' + Y(g).toFixed(1); }
+            const young = Math.sqrt(2 * d * M);
+            let g = '';
+            for (const v of [0, 0.5, 1]) g += '<line x1="50" x2="460" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="var(--border)"/><text class="wg-dim" x="45" y="' + (Y(v) + 4) + '" text-anchor="end">' + v + '</text>';
+            for (const t of [10, 100, 1000, 10000]) g += '<text class="wg-dim" x="' + X(t) + '" y="195" text-anchor="middle">' + t + ' s</text>';
+            g += '<path class="ln s1" stroke-width="2.4" d="' + path + '"/>';
+            if (young >= 10 && young <= 1e4) g += '<line x1="' + X(young) + '" x2="' + X(young) + '" y1="15" y2="175" class="s2" stroke-dasharray="4 3"/><text class="wg-dim" x="' + X(young) + '" y="12" text-anchor="middle">Young &#964;*</text>';
+            document.getElementById('gp-svg').innerHTML = g;
+            document.getElementById('gp-out').textContent = 'Young τ* = ' + young.toFixed(0) + ' s (' + (young / 60).toFixed(1) + ' min); formula peak ' + (100 * best[1]).toFixed(1) + '% near τ = ' + best[0].toFixed(0) + ' s.';
+        }
+        ['gp-d', 'gp-r', 'gp-m'].forEach(id => document.getElementById(id).addEventListener('input', upd));
+        upd();
+    })();
+    </script>
+    <div class="chart-wrap"><svg class="chart" viewBox="0 0 480 290" role="img" aria-label="Goodput against checkpoint interval">
+<rect class="plot-bg" x="62" y="18" width="392" height="230"/>
+<line class="grid" x1="62" x2="454" y1="216.9" y2="216.9"/>
+<text class="lbl" x="56" y="220.9" text-anchor="end">0.6</text>
+<line class="grid" x1="62" x2="454" y1="154.8" y2="154.8"/>
+<text class="lbl" x="56" y="158.8" text-anchor="end">0.7</text>
+<line class="grid" x1="62" x2="454" y1="92.6" y2="92.6"/>
+<text class="lbl" x="56" y="96.6" text-anchor="end">0.8</text>
+<line class="grid" x1="62" x2="454" y1="30.4" y2="30.4"/>
+<text class="lbl" x="56" y="34.4" text-anchor="end">0.9</text>
+<line class="grid" x1="76.7" x2="76.7" y1="18" y2="248"/>
+<text class="lbl" x="76.7" y="264" text-anchor="middle">60</text>
+<line class="grid" x1="132.5" x2="132.5" y1="18" y2="248"/>
+<text class="lbl" x="132.5" y="264" text-anchor="middle">120</text>
+<line class="grid" x1="188.3" x2="188.3" y1="18" y2="248"/>
+<text class="lbl" x="188.3" y="264" text-anchor="middle">240</text>
+<line class="grid" x1="244.1" x2="244.1" y1="18" y2="248"/>
+<text class="lbl" x="244.1" y="264" text-anchor="middle">480</text>
+<line class="grid" x1="300.0" x2="300.0" y1="18" y2="248"/>
+<text class="lbl" x="300.0" y="264" text-anchor="middle">960</text>
+<line class="grid" x1="355.8" x2="355.8" y1="18" y2="248"/>
+<text class="lbl" x="355.8" y="264" text-anchor="middle">1920</text>
+<line class="grid" x1="411.6" x2="411.6" y1="18" y2="248"/>
+<text class="lbl" x="411.6" y="264" text-anchor="middle">3840</text>
+<line class="axis" x1="62" x2="454" y1="248" y2="248"/>
+<line class="axis" x1="62" x2="62" y1="18" y2="248"/>
+<text class="lbl ax" x="258" y="284" text-anchor="middle">checkpoint every &#964; seconds (log scale)</text>
+<text class="lbl ax" x="13" y="133" text-anchor="middle" transform="rotate(-90 13 133)">goodput</text>
+<clipPath id="clip133408785921728"><rect x="62" y="18" width="392" height="230"/></clipPath>
+<g clip-path="url(#clip133408785921728)">
+<path class="ln s1" d="M76.7,210.0 L104.7,166.4 L132.5,129.8 L160.6,99.9 L188.3,77.2 L216.1,61.0 L244.1,50.5 L272.1,45.0 L300.0,44.5 L327.9,49.3 L355.8,59.5 L383.7,75.5 L411.6,100.2 L439.5,134.6"/>
+<circle class="pt s1" cx="76.7" cy="210.0" r="3"/>
+<circle class="pt s1" cx="104.7" cy="166.4" r="3"/>
+<circle class="pt s1" cx="132.5" cy="129.8" r="3"/>
+<circle class="pt s1" cx="160.6" cy="99.9" r="3"/>
+<circle class="pt s1" cx="188.3" cy="77.2" r="3"/>
+<circle class="pt s1" cx="216.1" cy="61.0" r="3"/>
+<circle class="pt s1" cx="244.1" cy="50.5" r="3"/>
+<circle class="pt s1" cx="272.1" cy="45.0" r="3"/>
+<circle class="pt s1" cx="300.0" cy="44.5" r="3"/>
+<circle class="pt s1" cx="327.9" cy="49.3" r="3"/>
+<circle class="pt s1" cx="355.8" cy="59.5" r="3"/>
+<circle class="pt s1" cx="383.7" cy="75.5" r="3"/>
+<circle class="pt s1" cx="411.6" cy="100.2" r="3"/>
+<circle class="pt s1" cx="439.5" cy="134.6" r="3"/>
+<path class="ln s2" d="M76.7,210.6 L104.7,167.1 L132.5,130.5 L160.6,100.8 L188.3,78.3 L216.1,62.2 L244.1,51.9 L272.1,46.9 L300.0,47.1 L327.9,52.6 L355.8,64.3 L383.7,83.7 L411.6,113.0 L439.5,156.0" stroke-dasharray="5 4"/>
+<circle class="pt s2" cx="76.7" cy="210.6" r="3"/>
+<circle class="pt s2" cx="104.7" cy="167.1" r="3"/>
+<circle class="pt s2" cx="132.5" cy="130.5" r="3"/>
+<circle class="pt s2" cx="160.6" cy="100.8" r="3"/>
+<circle class="pt s2" cx="188.3" cy="78.3" r="3"/>
+<circle class="pt s2" cx="216.1" cy="62.2" r="3"/>
+<circle class="pt s2" cx="244.1" cy="51.9" r="3"/>
+<circle class="pt s2" cx="272.1" cy="46.9" r="3"/>
+<circle class="pt s2" cx="300.0" cy="47.1" r="3"/>
+<circle class="pt s2" cx="327.9" cy="52.6" r="3"/>
+<circle class="pt s2" cx="355.8" cy="64.3" r="3"/>
+<circle class="pt s2" cx="383.7" cy="83.7" r="3"/>
+<circle class="pt s2" cx="411.6" cy="113.0" r="3"/>
+<circle class="pt s2" cx="439.5" cy="156.0" r="3"/>
+</g>
+<g class="legend"><rect class="legend-bg" x="68" y="202" width="166" height="40" rx="4"/><line class="ln s1" x1="76" x2="94" y1="212" y2="212"/><text class="lbl" x="99" y="216">simulated (20 seeds)</text><line class="ln s2" x1="76" x2="94" y1="228" y2="228" stroke-dasharray="5 4"/><text class="lbl" x="99" y="232">first-order formula</text></g>
+</svg><div class="chart-cap">Llama 3 405B&rsquo;s failure rate over 54 simulated days (results.md &sect;11c). Restart cost illustrative.</div></div>
+    <p>Llama 3&rsquo;s failure rate, \(\delta\) = 32.8 s (every GPU writing 4 GB at 2 TB/s, an upper bound from the paper&rsquo;s numbers) and an <strong>illustrative</strong> 10-minute restart: the simulation&rsquo;s best interval is 960 s, next to Young&rsquo;s 854 s (<a href="https://doi.org/10.1145/361147.361115">Young 1974</a>), and goodput peaks near 87.7% (results.md &sect;11c).</p>
+</section>
+
+<section class="slide" id="slide-10">
+    <div class="slide-number">10</div>
+    <h2>After Pretraining</h2>
+    <p>Pretraining makes a model that continues text; assistants are that model trained further, on far less data chosen far more carefully. The objective barely changes; what it is applied to does. Each stage in outline, with the deck that covers it properly:</p>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border"><h4>Annealing</h4><p>Llama 3 405B annealed the learning rate to zero over its final 40M tokens with a high-quality data mix, at its full 128K context, and averaged those checkpoints (&sect;3.4.3): deck 05&rsquo;s decay phase with the data changed too.</p></div>
+        <div class="diagram-panel accent-border"><h4>Supervised fine-tuning</h4><p>Deck 01&rsquo;s cross-entropy on the <em>response</em> only; the prompt is masked out of the loss. On &ldquo;who ran? &rdquo; + &ldquo;the rabbit.&rdquo; the trained model&rsquo;s loss is 2.670 nats per response character, 2.721 unmasked (results.md &sect;16). <a href="https://brendanjameslynskey.github.io/FT_01_SFT_Pipeline/">FT 01</a>, <a href="https://brendanjameslynskey.github.io/FT_02_LoRA_and_PEFT_Variants/">FT 02 (LoRA)</a>.</p></div>
+        <div class="diagram-panel accent-border"><h4>RLHF and DPO</h4><p>RLHF (<a href="https://arxiv.org/abs/2203.02155">Ouyang et al. 2022</a>) trains a reward model on human comparisons, then PPO; DPO (<a href="https://arxiv.org/abs/2305.18290">Rafailov et al. 2023</a>) skips the reward model, raising \(\log p(y_w)\) relative to \(\log p(y_l)\). The trained model scores &ldquo;queen.&rdquo; -18.19 and &ldquo;qxzjv.&rdquo; -42.65 after &ldquo;said the &rdquo;. <a href="https://brendanjameslynskey.github.io/FT_03_RLHF_and_PPO/">FT 03</a>, <a href="https://brendanjameslynskey.github.io/FT_04_DPO_and_Cousins/">FT 04</a>.</p></div>
+        <div class="diagram-panel accent-border"><h4>Checkable rewards</h4><p>Where answers can be checked automatically, RL needs no reward model: DeepSeek-R1 (<a href="https://arxiv.org/abs/2501.12948">DeepSeek-AI 2025</a>) trained reasoning this way with GRPO. Model-written feedback from principles: <a href="https://brendanjameslynskey.github.io/FT_05_Constitutional_AI_and_RLAIF/">FT 05</a>.</p></div>
+    </div>
+    <p>Every stage is chapter 1&rsquo;s loop with a different dataset and loss: the same backward pass, optimisers, schedules, precision, memory and parallelism. The <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Fine_Tuning">Training &amp; Fine-Tuning series</a> picks up from here.</p>
+</section>
+
+<section class="slide" id="slide-11">
+    <div class="slide-number">11</div>
+    <h2>What to Take Away</h2>
+    <ul>
+        <li>\(C \approx 6ND\); IsoFLOP minima give \(N_{\text{opt}} \propto C^a\): Kaplan 0.73, Chinchilla about 0.5. The toy&rsquo;s 0.42 shows the method, not the law.</li>
+        <li>Compare methods by <strong>steps or hours to a target loss</strong>; watch loss, gradient norm and update/weight ratio.</li>
+        <li>At 16,384 GPUs the job fails every few hours: <strong>checkpoint</strong> everything (weights, optimiser, data position) and pick the interval near \(\sqrt{2\delta M}\).</li>
+        <li>Fine-tuning is the same loop on different data and losses: see <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Fine_Tuning">Training &amp; Fine-Tuning</a>.</li>
+    </ul>
+    <p class="live-link">Animated: <a href="https://transformer-decoder-explained.vercel.app/training/14-scaling-laws">chapter 14</a> &middot; <a href="https://transformer-decoder-explained.vercel.app/training/15-running-a-real-job">chapter 15</a> &middot; <a href="https://transformer-decoder-explained.vercel.app/training/16-after-pretraining">chapter 16</a> &middot; back to the <a href="https://brendanjameslynskey.github.io/LLM_Hub_Transformer_Training/">series index</a></p>
+</section>
+
+<footer class="footer">
+    <p>Part of the <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Transformer_Training">Transformer Training series</a> &middot; live, animated companion: <a href="https://transformer-decoder-explained.vercel.app/training/14-scaling-laws">chapter 14, Scaling laws</a> &middot; <a href="https://transformer-decoder-explained.vercel.app/training/15-running-a-real-job">chapter 15, Running a real job</a> &middot; <a href="https://transformer-decoder-explained.vercel.app/training/16-after-pretraining">chapter 16, After pretraining</a> of <a href="https://transformer-decoder-explained.vercel.app/training">Transformer Decoder Explained, Part 2</a></p>
+    <p style="margin-top: 0.5rem; font-size: 0.8rem;"><a href="https://brendanjameslynskey.github.io/Transformer_Training_12_Training_over_Slow_Links/">&larr; 12 Slow Links</a> &nbsp;&middot;&nbsp; <a href="https://brendanjameslynskey.github.io/LLM_Hub_Transformer_Training/">Series index</a></p>
+    <p style="margin-top: 0.5rem; font-size: 0.75rem;">Measured numbers: <a href="https://github.com/BrendanJamesLynskey/transformer-explainer/blob/main/results.md">results.md</a> (transformer-explainer @15b1c9f). Code on these slides is cut from that repository.</p>
+</footer>
+<script>
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+            }
+        });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.slide').forEach(slide => {
+        slide.style.opacity = '0';
+        slide.style.transform = 'translateY(30px)';
+        slide.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        observer.observe(slide);
+    });
+</script>
+</body>
+</html>
