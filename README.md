@@ -8,11 +8,11 @@ C = 6ND and IsoFLOP profiles; Kaplan vs Chinchilla and a toy sweep; extrapolat
 
 ## Live, animated companion
 
-This deck is the slide companion to Part 2 (Training) of [Transformer Decoder Explained](https://transformer-decoder-explained.vercel.app/training), where the same model trains in your browser:
+This deck is the slide companion to Part 2 (Training) of [Transformer Decoder Explained](https://transformer-training-explained.vercel.app/training), where the same model trains in your browser:
 
-- [Chapter 14: Scaling laws](https://transformer-decoder-explained.vercel.app/training/14-scaling-laws)
-- [Chapter 15: Running a real job](https://transformer-decoder-explained.vercel.app/training/15-running-a-real-job)
-- [Chapter 16: After pretraining](https://transformer-decoder-explained.vercel.app/training/16-after-pretraining)
+- [Chapter 14: Scaling laws](https://transformer-training-explained.vercel.app/training/14-scaling-laws)
+- [Chapter 15: Running a real job](https://transformer-training-explained.vercel.app/training/15-running-a-real-job)
+- [Chapter 16: After pretraining](https://transformer-training-explained.vercel.app/training/16-after-pretraining)
 
 ## Where the numbers come from
 
