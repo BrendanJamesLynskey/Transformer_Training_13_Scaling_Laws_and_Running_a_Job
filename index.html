@@ -556,8 +556,8 @@
 <line class="axis" x1="62" x2="62" y1="18" y2="248"/>
 <text class="lbl ax" x="258" y="284" text-anchor="middle">parameters N (log scale)</text>
 <text class="lbl ax" x="13" y="133" text-anchor="middle" transform="rotate(-90 13 133)">final validation loss</text>
-<clipPath id="clip129418997676352"><rect x="62" y="18" width="392" height="230"/></clipPath>
-<g clip-path="url(#clip129418997676352)">
+<clipPath id="clip136114098680960"><rect x="62" y="18" width="392" height="230"/></clipPath>
+<g clip-path="url(#clip136114098680960)">
 <path class="ln s0" d="M85.0,159.6 L122.8,156.8 L178.7,128.8 L220.1,89.0 L280.6,88.7 L324.7,88.9"/>
 <line class="eb s0" x1="85.0" x2="85.0" y1="160.6" y2="158.7"/>
 <line class="eb s0" x1="122.8" x2="122.8" y1="163.7" y2="150.0"/>
@@ -624,7 +624,7 @@
 </g>
 <g class="legend"><rect class="legend-bg" x="322" y="24" width="126" height="72" rx="4"/><line class="ln s0" x1="330" x2="348" y1="34" y2="34"/><text class="lbl" x="353" y="38">C = 3e09 FLOPs</text><line class="ln s1" x1="330" x2="348" y1="50" y2="50"/><text class="lbl" x="353" y="54">C = 1e10 FLOPs</text><line class="ln s2" x1="330" x2="348" y1="66" y2="66"/><text class="lbl" x="353" y="70">C = 3e10 FLOPs</text><line class="ln s4" x1="330" x2="348" y1="82" y2="82"/><text class="lbl" x="353" y="86">C = 1e11 FLOPs</text></g>
 </svg><div class="chart-cap">Four budgets, three seeds each (mean &plusmn; sd); dashed: the fitted parabola around each interior minimum (results.md &sect;14).</div></div>
-    <p>Part 1&rsquo;s model at widths 6 to 64 (1,056 to 70,656 parameters), each trained for exactly the tokens its budget allows, AdamW at peak 0.01 with each run&rsquo;s cosine stretched to its own length, three seeds (results.md &sect;14). The rule, fixed before the sweep: a parabola in \(\log N\) through each budget&rsquo;s lowest mean and its two neighbours; no fit if the lowest is at an edge. The smallest budget has no interior minimum (every wider model spends its few hundred steps on the plateau). At the other three the best size grows with the budget: 2,493, 3,550 and 6,590 parameters, a fitted <strong>a = 0.42</strong>.</p>
+    <p>The Decoder&rsquo;s model at widths 6 to 64 (1,056 to 70,656 parameters), each trained for exactly the tokens its budget allows, AdamW at peak 0.01 with each run&rsquo;s cosine stretched to its own length, three seeds (results.md &sect;14). The rule, fixed before the sweep: a parabola in \(\log N\) through each budget&rsquo;s lowest mean and its two neighbours; no fit if the lowest is at an edge. The smallest budget has no interior minimum (every wider model spends its few hundred steps on the plateau). At the other three the best size grows with the budget: 2,493, 3,550 and 6,590 parameters, a fitted <strong>a = 0.42</strong>.</p>
 </section>
 
 <section class="slide" id="slide-04">
@@ -773,8 +773,8 @@
 <line class="axis" x1="62" x2="62" y1="18" y2="248"/>
 <text class="lbl ax" x="258" y="284" text-anchor="middle">checkpoint every &#964; seconds (log scale)</text>
 <text class="lbl ax" x="13" y="133" text-anchor="middle" transform="rotate(-90 13 133)">goodput</text>
-<clipPath id="clip129418997228992"><rect x="62" y="18" width="392" height="230"/></clipPath>
-<g clip-path="url(#clip129418997228992)">
+<clipPath id="clip136114096349056"><rect x="62" y="18" width="392" height="230"/></clipPath>
+<g clip-path="url(#clip136114096349056)">
 <path class="ln s1" d="M76.7,210.0 L104.7,166.4 L132.5,129.8 L160.6,99.9 L188.3,77.2 L216.1,61.0 L244.1,50.5 L272.1,45.0 L300.0,44.5 L327.9,49.3 L355.8,59.5 L383.7,75.5 L411.6,100.2 L439.5,134.6"/>
 <circle class="pt s1" cx="76.7" cy="210.0" r="3"/>
 <circle class="pt s1" cx="104.7" cy="166.4" r="3"/>
@@ -837,7 +837,7 @@
 </section>
 
 <footer class="footer">
-    <p>Part of the <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Transformer_Training">Transformer Training series</a> &middot; live, animated companion: <a href="https://transformer-training-explained.vercel.app/training/14-scaling-laws">chapter 14, Scaling laws</a> &middot; <a href="https://transformer-training-explained.vercel.app/training/15-running-a-real-job">chapter 15, Running a real job</a> &middot; <a href="https://transformer-training-explained.vercel.app/training/16-after-pretraining">chapter 16, After pretraining</a> of <a href="https://transformer-training-explained.vercel.app/training">Transformer Decoder Explained, Part 2</a></p>
+    <p>Part of the <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Transformer_Training">Transformer Training series</a> &middot; live, animated companion: <a href="https://transformer-training-explained.vercel.app/training/14-scaling-laws">chapter 14, Scaling laws</a> &middot; <a href="https://transformer-training-explained.vercel.app/training/15-running-a-real-job">chapter 15, Running a real job</a> &middot; <a href="https://transformer-training-explained.vercel.app/training/16-after-pretraining">chapter 16, After pretraining</a> of the <a href="https://transformer-training-explained.vercel.app/training">Training</a> site</p>
     <p style="margin-top: 0.5rem; font-size: 0.8rem;"><a href="https://brendanjameslynskey.github.io/Transformer_Training_12_Training_over_Slow_Links/">&larr; 12 Slow Links</a> &nbsp;&middot;&nbsp; <a href="https://brendanjameslynskey.github.io/LLM_Hub_Transformer_Training/">Series index</a></p>
     <p style="margin-top: 0.5rem; font-size: 0.75rem;">Measured numbers: <a href="https://github.com/BrendanJamesLynskey/transformer-explainer/blob/main/results.md">results.md</a> (transformer-explainer @15b1c9f). Code on these slides is cut from that repository.</p>
 </footer>
